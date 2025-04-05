@@ -8,7 +8,7 @@ CLIENT_DATA_PATH = "clients"
 
 def profile_is_consistent(profile):
     """
-    Checks if graduation years are logically consistent.
+    Checks if graduation years and employment dates are logically consistent.
     Returns True if the profile is consistent, False otherwise.
     """
     
@@ -49,6 +49,33 @@ def profile_is_consistent(profile):
         if birth_year and min_higher_ed_year - birth_year < 18:
             return False
     
+    # Check employment history consistency
+    if "employment_history" in profile and isinstance(profile["employment_history"], list):
+        for employment in profile["employment_history"]:
+            if isinstance(employment, dict):
+                # Extract employment years
+                start_year = employment.get("start_year")
+                end_year = employment.get("end_year")
+                
+                # Check start year is valid (not before birth + 16 years)
+                if start_year and birth_year:
+                    # Person should be at least 16 years old to start working
+                    if start_year - birth_year < 16:
+                        return False
+                
+                # Check end year is greater than start year
+                if start_year and end_year:
+                    # End year should be after start year
+                    if end_year < start_year:
+                        return False
+                
+                # Check that employment doesn't start before graduation
+                if start_year and secondary_year:
+                    # Typically employment starts after secondary education
+                    # Only flag if start year is more than 2 years before graduation
+                    if secondary_year - start_year > 2:
+                        return False
+    
     # If no issues were found, the profile is consistent
     return True
 
@@ -76,7 +103,7 @@ def test_profile_consistency():
             # Uncomment to verify if inconsistent profiles are rejected
             assert label == "Reject", client_dir
     
-    print(f"{cnt} clients with inconsistent graduation years detected")
+    print(f"{cnt} clients with inconsistent dates (education or employment) detected")
 
 if __name__ == "__main__":
     test_profile_consistency() 
