@@ -1,58 +1,43 @@
 import os
 import json
-from openai import OpenAI
-from dotenv import load_dotenv
-from pydantic import BaseModel
+import re
+from pathlib import Path
 
-class FamilyBackgroundExtraction(BaseModel):
-    marital_status: str
-    number_of_children: int
+def extract_family_background(background: str):
+    background = re.sub(r'\s{2,}', ' ', background)
+    background = background.split(". ")
 
-def extract_family_background(text: str):
-    load_dotenv()
-    client = OpenAI(api_key= os.environ.get("OPEN_AI_KEY"))
+    marital_status_sentence = background[0].strip().lower()
+    if len(background) == 1:
+        children_number_sentence = ""
+    else:
+        children_number_sentence = background[1].strip()
 
-    prompt = f""" You are given a few sentences describing the familial background of an individual. Your job is to extract this individual's marital status (which must be one of married, single, divorced, widowed) and their number of children. 
-    Examples:
-    Input 1: Vázquez Gutiérrez Ortega is currently divorced. His child is named Suárez.
-    Output 1: 
-    {{ 
-        "marital_status": "divorced",
-        "number_of_children": 1,       
-    }}
-    
-    Input 2: Scholz Schmidt Fischer and Gwendolyn tied the knot in 1999. They are proud parents of 3 children: Anna, Herrmann and Schulz.
-    Output 2: 
-    {{ 
-        "marital_status": "married",
-        "number_of_children": 3,       
-    }}
-    
-    Input 3: Fantini Rizzo Marini is currently single. He does not have any children.
-    Output 3: 
-    {{ 
-        "marital_status": "single",
-        "number_of_children": 0,       
-    }}
-    
-    Now extract the marital status and number of children from the following sentences:
-    {text}
-    """
+    if "married" in marital_status_sentence or "tied the knot" in marital_status_sentence:
+        profile_marital_status = "married"
+    elif "widowed" in marital_status_sentence:
+        profile_marital_status = "widowed"
+    elif "single" in marital_status_sentence:
+        profile_marital_status = "single"
+    elif "divorced" in marital_status_sentence:
+        profile_marital_status = "divorced"
+    else:
+        profile_marital_status = "unknown"
+        children_number_sentence = marital_status_sentence
 
-    print(prompt)
-    try:
-        response = client.beta.chat.completions.parse(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are an expert at structured data extraction. You will be given unstructured text and should convert it into the given structure."},
-                {"role": "user", "content": prompt}
-            ],
-            response_format=FamilyBackgroundExtraction,
-        )
-        return response.choices[0].message.parsed.model_dump()
-    except Exception as e:
-        print(e)
-        return {"marital_status": "single", "number_of_children": 0}
+    match = re.search(r'\d+', children_number_sentence)
+    if match:
+        number = int(match.group())
+    else:
+        if "is named" in children_number_sentence: 
+            number = 1
+        elif "are named" in children_number_sentence:
+            one_more_split = children_number_sentence.split("are named")[-1]
+            number = one_more_split.count(',') + 2
+        else:
+            number = 0
+
+    return {"marital_status": profile_marital_status, "number_of_children": number}
 
 
 def family_background_is_consistent(description, profile, cache_dir_path, client_id): 
@@ -68,35 +53,35 @@ def family_background_is_consistent(description, profile, cache_dir_path, client
         family_background = json.load(family_bckg_file_path.open("r", encoding="utf-8"))
     else:
         family_background = extract_family_background(description["Family Background"])
-        with open("output.json", "w", encoding="utf-8") as f:
-            json.dump(family_background, f, indent=4)
-
-    profile_marital_status = profile["marital_status"]
-    if profile_marital_status != family_background["marital_status"]:
-        return False
-    return True
-
-
-# THIS IS JUST TO BE SURE IT WORKS, TO REMOVE CZ IT NEEDS LABEL
-def family_background_is_consistent_with_label(description, profile, cache_dir_path, client_id, label): 
-    """
-    Uses an LLM to parse the family background description, storing the marital status and number of children on file
-    Then, it checks if marital status is consistent
-    """
-    cur_dir_path = cache_dir_path + "/" + client_id
-    os.makedirs(cur_dir_path, exist_ok=True)
-
-    family_bckg_file_path = cur_dir_path + "/family_background.json"
-    if os.path.exists(family_bckg_file_path):
-        family_background = json.load(family_bckg_file_path.open("r", encoding="utf-8"))
-    else:
-        family_background = extract_family_background(description["Family Background"])
         with open(family_bckg_file_path, "w", encoding="utf-8") as f:
             json.dump(family_background, f, indent=4)
 
     profile_marital_status = profile["marital_status"]
     if profile_marital_status != family_background["marital_status"]:
-        assert label == "Reject", client_id
         return False
     return True
 
+
+def test_account_form_and_client_profile_consistency():
+    clients_dir = Path("data/clients") 
+    cache_dir = Path("llm_outputs_train")
+
+    cnt = 0
+    for client_dir in clients_dir.iterdir():           
+        client_id = os.path.basename(client_dir)
+        account_form_path = client_dir / "account_form.json"
+        client_profile_path = client_dir / "client_profile.json"  
+        label_path = client_dir / "label.json"
+
+        client_description = json.load((client_dir / "client_description.json").open("r", encoding="utf-8"))
+        client_profile = json.load(client_profile_path.open("r", encoding="utf-8"))
+        label = json.load(label_path.open("r", encoding="utf-8")).get("label")
+
+        is_consistent = family_background_is_consistent(client_description, client_profile, cache_dir, client_id)
+        if not is_consistent:
+            cnt += 1
+            assert label == "Reject", client_dir
+    print(f"{cnt} rejects detected")
+
+if __name__ == "__main__":
+    test_account_form_and_client_profile_consistency()

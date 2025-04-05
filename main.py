@@ -4,69 +4,61 @@ import json
 
 from tqdm import tqdm
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
 from extract_files import extract_files
 from check_passport_consistency import passport_is_consistent
 from check_account_form import account_form_is_consistent
 from client_profile_graduation_year import profile_is_consistent
-from check_family_background_consistency import family_background_is_consistent_with_label
+from check_family_background_consistency import family_background_is_consistent
 from cross_check_passport_client_profile_form import client_profile_and_passport_are_consistent
 from cross_check_account_form_client_profile import account_form_and_client_profile_are_consistent
 from cross_check_account_form_passport import account_form_and_passport_are_consistent
 
-# TODO change parameters for test
-def get_predictions(data_path: str, llm_output_path: str):
+def process_single_client(client_dir, llm_output_path: Path):
+    cur_client_id = os.path.basename(client_dir)
+
+    account_form = json.load((client_dir / "account_form.json").open("r", encoding="utf-8"))
+    client_description = json.load((client_dir / "client_description.json").open("r", encoding="utf-8"))
+    client_profile = json.load((client_dir / "client_profile.json").open("r", encoding="utf-8"))
+    passport = json.load((client_dir / "passport.json").open("r", encoding="utf-8"))
+
+    if not passport_is_consistent(passport) or not account_form_is_consistent(account_form):
+        return cur_client_id, "Reject"
+    if not client_profile_and_passport_are_consistent(client_profile, passport):
+        return cur_client_id, "Reject"
+    if not account_form_and_client_profile_are_consistent(account_form, client_profile) or \
+        not account_form_and_passport_are_consistent(account_form, passport):
+        return cur_client_id, "Reject"
+    if not profile_is_consistent(client_profile):
+        return cur_client_id, "Reject"
+    if not family_background_is_consistent(client_description, client_profile, llm_output_path, cur_client_id):
+        return cur_client_id, "Reject"
+
+    return cur_client_id, "Accept"
+
+def get_predictions(data_path: str, llm_output_path: Path):
     clients_dir = os.path.join(data_path, 'clients')
     if not os.path.exists(clients_dir):
         extract_files(data_path)
-    
-    client_ids = []
-    predicted_labels = []
-    clients_dir = Path(data_path + "/clients") 
+
+    predicted_labels = {}
+    clients_dir = Path(clients_dir)
     sorted_clients = sorted(clients_dir.iterdir(), key=lambda x: int(x.name.split('_')[1]))
-    for client_dir in tqdm(sorted_clients):   
-        cur_client_id = os.path.basename(client_dir)
-        client_ids.append(cur_client_id)
 
-        account_form_path = client_dir / "account_form.json"
-        client_description_path = client_dir / "client_description.json"
-        client_profile_path = client_dir / "client_profile.json"  
-        passport_path = client_dir / "passport.json"
+    with ProcessPoolExecutor(max_workers=6) as executor:
+        futures = {executor.submit(process_single_client, client_dir, llm_output_path): client_dir for client_dir in sorted_clients}
+        for future in tqdm(as_completed(futures), total=len(futures)):
+            client_id, status = future.result()
+            predicted_labels[client_id] = status
 
-        account_form = json.load(account_form_path.open("r", encoding="utf-8"))
-        client_description = json.load(client_description_path.open("r", encoding="utf-8"))
-        client_profile = json.load(client_profile_path.open("r", encoding="utf-8"))
-        passport = json.load(passport_path.open("r", encoding="utf-8"))
-
-        if not passport_is_consistent(passport) or not account_form_is_consistent(account_form):
-            predicted_labels.append("Reject")
-            continue
-        if not client_profile_and_passport_are_consistent(client_profile, passport):
-            predicted_labels.append("Reject")
-            continue
-        if not account_form_and_client_profile_are_consistent(account_form, client_profile) or not account_form_and_passport_are_consistent(account_form, passport):
-            predicted_labels.append("Reject")
-            continue
-        if not profile_is_consistent(client_profile):
-            predicted_labels.append("Reject")
-            continue
-
-        # TODO REMOVE LABEL
-        label_path = client_dir / "label.json"
-        label = json.load(label_path.open("r", encoding="utf-8")).get("label")
-        if not family_background_is_consistent_with_label(client_description, client_profile, llm_output_path, cur_client_id, label):
-            predicted_labels.append("Reject")
-            continue
-        #TODO Add more logic here
-    
-        predicted_labels.append("Accept")
-    
-    # Write predictions to csv file
     output_file = "predictions.csv"
-    with open(output_file, mode='w', newline='') as file:
+    with open(output_file, mode='w', newline='', encoding='utf-8') as file:
         writer = csv.writer(file, delimiter=';')
-        for client_id, status in zip(client_ids, predicted_labels):
-            writer.writerow([client_id, status])
-    
+        for client_dir in sorted_clients:
+            client_id = os.path.basename(client_dir)
+            writer.writerow([client_id, predicted_labels[client_id]])
+
 
 def get_real_train_set_solutions():
     # Do that at least once to get a correct solution.csv file
@@ -109,5 +101,7 @@ def compute_accuracy():
 
     print(f"Accuracy: {accuracy:.2f}%")
 
-get_predictions("data", "llm_outputs_train")
-compute_accuracy()
+if __name__ == "__main__":
+    cache_dir = Path("llm_outputs_train")
+    get_predictions("data", cache_dir)
+    compute_accuracy()
