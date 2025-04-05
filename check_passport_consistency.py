@@ -16,10 +16,15 @@ def check_passport_consistency(account_form, client_description, client_profile,
     nationality = passport["nationality"]
     number = passport["passport_number"]
     birth_date_str = passport["birth_date"]
+    gender = passport["gender"]
     mrz_line_0 = passport["passport_mrz"][0]
     mrz_line_1 = passport["passport_mrz"][1]
     issue_date_str = passport["passport_issue_date"]
     expiry_date_str = passport["passport_expiry_date"]
+
+    ## GENDER CHECK
+    if gender == "":
+        return False
 
     ## MRZ CHECKS
     # Compute expected mrz line 0
@@ -60,7 +65,6 @@ def check_passport_consistency(account_form, client_description, client_profile,
 
 def test_passport_consistency():
     base_dir = Path("clients") 
-    output = {}
 
     idx = 0
     for client_dir in base_dir.iterdir():
