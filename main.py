@@ -4,7 +4,9 @@ import json
 from pathlib import Path
 from extract_files import extract_files
 from check_passport_consistency import passport_is_consistent
+from check_account_form import account_form_is_consistent
 from cross_check_passport_client_profile_form import client_profile_and_passport_are_consistent
+from cross_check_account_form_client_profile import account_form_and_client_profile_are_consistent
 
 def get_predictions(data_path: str):
     clients_dir = os.path.join(data_path, 'clients')
@@ -28,10 +30,13 @@ def get_predictions(data_path: str):
         client_profile = json.load(client_profile_path.open("r", encoding="utf-8"))
         passport = json.load(passport_path.open("r", encoding="utf-8"))
 
-        if not passport_is_consistent(passport):
+        if not passport_is_consistent(passport) or not account_form_is_consistent(account_form):
             predicted_labels.append("Reject")
             continue
         if not client_profile_and_passport_are_consistent(client_profile, passport):
+            predicted_labels.append("Reject")
+            continue
+        if not account_form_and_client_profile_are_consistent(account_form, client_profile):
             predicted_labels.append("Reject")
             continue
 

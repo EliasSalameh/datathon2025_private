@@ -1,5 +1,4 @@
 import json
-from datetime import datetime
 from pathlib import Path
 
 def client_profile_and_passport_are_consistent(client_profile, passport):
@@ -40,7 +39,7 @@ def client_profile_and_passport_are_consistent(client_profile, passport):
         return False
     return True
 
-def test_passport_consistency():
+def test_client_profile_and_passport_consistency():
     clients_dir = Path("data/clients") 
 
     cnt = 0
@@ -60,4 +59,4 @@ def test_passport_consistency():
     print(f"{cnt} rejects detected")
 
 if __name__ == "__main__":
-    test_passport_consistency()
+    test_client_profile_and_passport_consistency()
