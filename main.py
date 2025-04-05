@@ -2,17 +2,19 @@ import os
 import csv 
 import json
 
-#from tqdm import tqdm
+from tqdm import tqdm
 from pathlib import Path
 from extract_files import extract_files
 from check_passport_consistency import passport_is_consistent
 from check_account_form import account_form_is_consistent
 from client_profile_graduation_year import profile_is_consistent
+from check_family_background_consistency import family_background_is_consistent_with_label
 from cross_check_passport_client_profile_form import client_profile_and_passport_are_consistent
 from cross_check_account_form_client_profile import account_form_and_client_profile_are_consistent
 from cross_check_account_form_passport import account_form_and_passport_are_consistent
 
-def get_predictions(data_path: str):
+# TODO change parameters for test
+def get_predictions(data_path: str, llm_output_path: str):
     clients_dir = os.path.join(data_path, 'clients')
     if not os.path.exists(clients_dir):
         extract_files(data_path)
@@ -21,8 +23,9 @@ def get_predictions(data_path: str):
     predicted_labels = []
     clients_dir = Path(data_path + "/clients") 
     sorted_clients = sorted(clients_dir.iterdir(), key=lambda x: int(x.name.split('_')[1]))
-    for client_dir in sorted_clients:   
-        client_ids.append(os.path.basename(client_dir))
+    for client_dir in tqdm(sorted_clients):   
+        cur_client_id = os.path.basename(client_dir)
+        client_ids.append(cur_client_id)
 
         account_form_path = client_dir / "account_form.json"
         client_description_path = client_dir / "client_description.json"
@@ -47,6 +50,12 @@ def get_predictions(data_path: str):
             predicted_labels.append("Reject")
             continue
 
+        # TODO REMOVE LABEL
+        label_path = client_dir / "label.json"
+        label = json.load(label_path.open("r", encoding="utf-8")).get("label")
+        if not family_background_is_consistent_with_label(client_description, client_profile, llm_output_path, cur_client_id, label):
+            predicted_labels.append("Reject")
+            continue
         #TODO Add more logic here
     
         predicted_labels.append("Accept")
@@ -100,5 +109,5 @@ def compute_accuracy():
 
     print(f"Accuracy: {accuracy:.2f}%")
 
-get_predictions("data")
+get_predictions("data", "llm_outputs_train")
 compute_accuracy()

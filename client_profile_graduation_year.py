@@ -3,56 +3,43 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-# Path to client data
-CLIENT_DATA_PATH = "clients"
 
 def profile_is_consistent(profile):
-    """
-    Checks if graduation years are logically consistent.
-    Returns True if the profile is consistent, False otherwise.
-    """
-    
-    # Extract birth year
-    birth_year = None
-    if "birth_date" in profile and profile["birth_date"]:
-        try:
-            birth_year = int(profile["birth_date"].split("-")[0])
-        except:
-            pass
-    
-    # Get secondary school graduation year
-    secondary_year = None
-    if "secondary_school" in profile and isinstance(profile["secondary_school"], dict):
-        if "graduation_year" in profile["secondary_school"]:
-            secondary_year = profile["secondary_school"]["graduation_year"]
+    # Checks if graduation years are logically consistent.
+    birth_year = int(profile["birth_date"].split("-")[0])
+    secondary_year = secondary_year = profile["secondary_school"]["graduation_year"]
             
-            # Check against birth year
-            if birth_year:
-                if secondary_year - birth_year < 17:
-                    return False
-                if secondary_year - birth_year > 20:
-                    return False
+    if secondary_year - birth_year < 17:
+        return False
+    if secondary_year - birth_year > 20:
+        return False
     
     # Get earliest higher education year
     min_higher_ed_year = None
-    if "higher_education" in profile and isinstance(profile["higher_education"], list):
-        for education in profile["higher_education"]:
-            if isinstance(education, dict) and "graduation_year" in education:
-                year = education["graduation_year"]
-                if min_higher_ed_year is None or year < min_higher_ed_year:
-                    min_higher_ed_year = year
-    
+    for education in profile["higher_education"]:
+        year = education["graduation_year"]
+        if min_higher_ed_year is None or year < min_higher_ed_year:
+            min_higher_ed_year = year
+
     # Check higher education consistency
     if min_higher_ed_year:
-        if secondary_year and min_higher_ed_year < secondary_year:
+        if min_higher_ed_year < secondary_year:
             return False
-        if birth_year and min_higher_ed_year - birth_year < 18:
+        if min_higher_ed_year - birth_year < 18:
             return False
-    
-    # If no issues were found, the profile is consistent
+
+    # Checks if real_estate_value is consistent with the reported values below
+    real_estate_value = profile["aum"]["real_estate_value"]
+    property_value_sum = 0
+    for property in profile["real_estate_details"]:
+        property_value_sum += property["property value"]
+
+    if real_estate_value != property_value_sum:
+        return False
+
     return True
 
-def test_profile_consistency():
+def test_profile_consistency(CLIENT_DATA_PATH = "data/clients"):
     clients_dir = Path(CLIENT_DATA_PATH) 
 
     cnt = 0
@@ -76,7 +63,7 @@ def test_profile_consistency():
             # Uncomment to verify if inconsistent profiles are rejected
             assert label == "Reject", client_dir
     
-    print(f"{cnt} clients with inconsistent graduation years detected")
+    print(f"{cnt} clients with inconsistency detected")
 
 if __name__ == "__main__":
     test_profile_consistency() 
