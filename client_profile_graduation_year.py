@@ -3,7 +3,7 @@ import json
 from collections import defaultdict
 
 # Path to client data
-CLIENT_DATA_PATH = "NewRepo/datathon2025_2"
+CLIENT_DATA_PATH = "clients"
 
 def check_graduation_consistency(profile):
     """Check if graduation years are logically consistent."""
