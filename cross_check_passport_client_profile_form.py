@@ -15,7 +15,7 @@ def client_profile_and_passport_are_consistent(client_profile, passport):
 
     passport_birth_date_str = passport["birth_date"]
     passport_gender = passport["gender"]
-    passport_country = passport["country"]
+    #passport_country = passport["country"]
     passport_nationality = passport["nationality"]
     passport_number = passport["passport_number"]
     passport_issue_date_str = passport["passport_issue_date"]
@@ -23,7 +23,7 @@ def client_profile_and_passport_are_consistent(client_profile, passport):
 
     # Get client profile data
     profile_full_name = client_profile["name"]
-    profile_country_of_domicile = client_profile["country_of_domicile"]
+    #profile_country_of_domicile = client_profile["country_of_domicile"]  #can be different than passport country
     profile_birth_date_str = client_profile["birth_date"]
     profile_nationality = client_profile["nationality"]
     profile_gender = client_profile["gender"]
