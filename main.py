@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from extract_files import extract_files
 from check_passport_consistency import passport_is_consistent
+from cross_check_passport_client_profile_form import client_profile_and_passport_are_consistent
 
 def get_predictions(data_path: str):
     clients_dir = os.path.join(data_path, 'clients')
@@ -28,6 +29,9 @@ def get_predictions(data_path: str):
         passport = json.load(passport_path.open("r", encoding="utf-8"))
 
         if not passport_is_consistent(passport):
+            predicted_labels.append("Reject")
+            continue
+        if not client_profile_and_passport_are_consistent(client_profile, passport):
             predicted_labels.append("Reject")
             continue
 
@@ -83,3 +87,6 @@ def compute_accuracy():
     accuracy = correct_matches / total_clients * 100 
 
     print(f"Accuracy: {accuracy:.2f}%")
+
+get_predictions("data")
+compute_accuracy()
