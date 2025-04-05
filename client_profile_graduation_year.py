@@ -7,6 +7,30 @@ from pathlib import Path
 CLIENT_DATA_PATH = "data/clients"
 
 def profile_is_consistent(profile):
+<<<<<<< HEAD
+    """
+    Checks if graduation years and employment dates are logically consistent.
+    Returns True if the profile is consistent, False otherwise.
+    """
+    
+    # Extract birth year
+    birth_year = None
+    if "birth_date" in profile and profile["birth_date"]:
+        try:
+            birth_year = int(profile["birth_date"].split("-")[0])
+        except:
+            pass
+    
+    # Get secondary school graduation year
+    secondary_year = None
+    if "secondary_school" in profile and isinstance(profile["secondary_school"], dict):
+        if "graduation_year" in profile["secondary_school"]:
+            secondary_year = profile["secondary_school"]["graduation_year"]
+=======
+    # Checks if graduation years are logically consistent.
+    birth_year = int(profile["birth_date"].split("-")[0])
+    secondary_year = secondary_year = profile["secondary_school"]["graduation_year"]
+>>>>>>> 9ec5a3df53a04dc1a655fb3b457bcb9eb2005bee
     """
     Checks if graduation years, employment dates, and property values are logically consistent.
     Returns True if the profile is consistent, False otherwise.
