@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-def check_passport_consistency(account_form, client_description, client_profile, passport):
+def passport_is_consistent(passport):
     """
     Checks consistency on the passport file only
     """
@@ -64,20 +64,21 @@ def check_passport_consistency(account_form, client_description, client_profile,
    
 
 def test_passport_consistency():
-    base_dir = Path("data/clients") 
+    clients_dir = Path("data/clients") 
 
     cnt = 0
-    for client_dir in base_dir.iterdir():           
+    for client_dir in clients_dir.iterdir():           
         passport_path = client_dir / "passport.json"
         label_path = client_dir / "label.json"
 
         passport = json.load(passport_path.open("r", encoding="utf-8"))
         label = json.load(label_path.open("r", encoding="utf-8")).get("label")
 
-        is_consistent = check_passport_consistency(None, None, None, passport)
+        is_consistent = passport_is_consistent(passport)
         if not is_consistent:
             cnt += 1
             assert label == "Reject", client_dir
     print(f"{cnt} rejects detected")
 
-test_passport_consistency()
+if __name__ == "__main__":
+    test_passport_consistency()
