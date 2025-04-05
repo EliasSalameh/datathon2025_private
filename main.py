@@ -12,7 +12,7 @@ def get_predictions(data_path: str):
 
     client_ids = []
     predicted_labels = []
-    clients_dir = Path("data/clients") 
+    clients_dir = Path(data_path + "/clients") 
     sorted_clients = sorted(clients_dir.iterdir(), key=lambda x: int(x.name.split('_')[1]))
     for client_dir in sorted_clients:   
         client_ids.append(os.path.basename(client_dir))
