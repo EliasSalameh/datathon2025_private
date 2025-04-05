@@ -2,11 +2,12 @@ import os
 import csv 
 import json
 
-from tqdm import tqdm
+#from tqdm import tqdm
 from pathlib import Path
 from extract_files import extract_files
 from check_passport_consistency import passport_is_consistent
 from check_account_form import account_form_is_consistent
+from client_profile_graduation_year import profile_is_consistent
 from cross_check_passport_client_profile_form import client_profile_and_passport_are_consistent
 from cross_check_account_form_client_profile import account_form_and_client_profile_are_consistent
 from cross_check_account_form_passport import account_form_and_passport_are_consistent
@@ -15,12 +16,12 @@ def get_predictions(data_path: str):
     clients_dir = os.path.join(data_path, 'clients')
     if not os.path.exists(clients_dir):
         extract_files(data_path)
-
+    
     client_ids = []
     predicted_labels = []
     clients_dir = Path(data_path + "/clients") 
     sorted_clients = sorted(clients_dir.iterdir(), key=lambda x: int(x.name.split('_')[1]))
-    for client_dir in tqdm(sorted_clients):   
+    for client_dir in sorted_clients:   
         client_ids.append(os.path.basename(client_dir))
 
         account_form_path = client_dir / "account_form.json"
@@ -40,6 +41,9 @@ def get_predictions(data_path: str):
             predicted_labels.append("Reject")
             continue
         if not account_form_and_client_profile_are_consistent(account_form, client_profile) or not account_form_and_passport_are_consistent(account_form, passport):
+            predicted_labels.append("Reject")
+            continue
+        if not profile_is_consistent(client_profile):
             predicted_labels.append("Reject")
             continue
 
