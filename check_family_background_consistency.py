@@ -25,10 +25,12 @@ def extract_family_background(background: str):
         profile_marital_status = "unknown"
         children_number_sentence = marital_status_sentence
 
+    # If theere is a number there, it is how many children there are.
     match = re.search(r'\d+', children_number_sentence)
     if match:
         number = int(match.group())
     else:
+        # Otherwise, either the children are named (so we can easily count them) or there are none.
         if "is named" in children_number_sentence: 
             number = 1
         elif "are named" in children_number_sentence:
@@ -42,8 +44,8 @@ def extract_family_background(background: str):
 
 def family_background_is_consistent(description, profile, cache_dir_path, client_id): 
     """
-    Uses an LLM to parse the family background description, storing the marital status and number of children on file
-    Then, it checks if marital status is consistent
+    Parse the family background description, storing the marital status and number of children on file
+    Then, check if marital status is consistent
     """
     cur_dir_path = cache_dir_path / client_id
     os.makedirs(cur_dir_path, exist_ok=True)
@@ -62,14 +64,13 @@ def family_background_is_consistent(description, profile, cache_dir_path, client
     return True
 
 
-def test_account_form_and_client_profile_consistency():
+def test_family_background_consistency():
     clients_dir = Path("data/clients") 
     cache_dir = Path("llm_outputs_train")
 
     cnt = 0
     for client_dir in clients_dir.iterdir():           
         client_id = os.path.basename(client_dir)
-        account_form_path = client_dir / "account_form.json"
         client_profile_path = client_dir / "client_profile.json"  
         label_path = client_dir / "label.json"
 
@@ -84,4 +85,4 @@ def test_account_form_and_client_profile_consistency():
     print(f"{cnt} rejects detected")
 
 if __name__ == "__main__":
-    test_account_form_and_client_profile_consistency()
+    test_family_background_consistency()
