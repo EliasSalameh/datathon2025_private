@@ -14,7 +14,7 @@ def check_passport_consistency(data_acc, data_passport):
         return False
 
     if isinstance(data_acc.get("passport_number"), list):
-        return False
+        data_acc["passport_number"] = data_acc.get("passport_number")[0]
 
     if data_acc.get("passport_number", "").strip() != data_passport.get("passport_number", "").strip():
         return False
