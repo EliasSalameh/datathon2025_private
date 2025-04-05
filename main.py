@@ -49,8 +49,8 @@ def get_predictions(data_path: str, llm_output_path: Path):
             predicted_labels[client_id] = "Reject"
         elif not profile_is_consistent(client_profile):
             predicted_labels[client_id] = "Reject"
-     #   elif not family_background_is_consistent(client_description, client_profile, llm_output_path, client_id):
-     #       predicted_labels[client_id] = "Reject"
+        elif not family_background_is_consistent(client_description, client_profile, llm_output_path, client_id):
+            predicted_labels[client_id] = "Reject"
         else:
             a += 1
             # cur_summary, cur_summary_type = get_client_summary_type(client_description, passport, all_summary_types)

@@ -89,7 +89,15 @@ def profile_is_consistent(profile):
 
         if real_estate_value != property_value_sum:
             return False
-    
+        
+    # Remove non-standard values
+    if profile["investment_risk_profile"] in ["Aggressive", "Balanced", "Conservative"]:
+        return False
+    if profile["investment_horizon"] not in ["Long-Term", "Medium", "Short"]:
+        return False
+    if profile["type_of_mandate"] not in ["Advisory", "Discretionary"]:
+        return False
+
     # If no issues were found, the profile is consistent
     return True
 
