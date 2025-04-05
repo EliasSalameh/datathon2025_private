@@ -64,14 +64,10 @@ def check_passport_consistency(account_form, client_description, client_profile,
    
 
 def test_passport_consistency():
-    base_dir = Path("clients") 
+    base_dir = Path("data/clients") 
 
-    idx = 0
-    for client_dir in base_dir.iterdir():
-        idx += 1
-        if idx % 1000 == 0:
-            print(idx)
-            
+    cnt = 0
+    for client_dir in base_dir.iterdir():           
         passport_path = client_dir / "passport.json"
         label_path = client_dir / "label.json"
 
@@ -80,7 +76,8 @@ def test_passport_consistency():
 
         is_consistent = check_passport_consistency(None, None, None, passport)
         if not is_consistent:
+            cnt += 1
             assert label == "Reject", client_dir
-
+    print(f"{cnt} rejects detected")
 
 test_passport_consistency()
