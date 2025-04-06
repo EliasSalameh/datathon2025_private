@@ -13,6 +13,10 @@ from sklearn.metrics import accuracy_score, confusion_matrix
 import numpy as np
 import matplotlib.pyplot as plt
 from itertools import product
+from sklearn.gaussian_process import GaussianProcessClassifier, GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
+from sklearn.ensemble import RandomForestClassifier
+
 
 
 
@@ -259,6 +263,36 @@ def get_X_y_split(X, y, test_ratio=0.2):
     X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=test_ratio, random_state=42)
     return X_train, X_val, y_train, y_val
 
+def GPClassifier_train(X_train, y_train):
+    # kernel = RBF(length_scale=1.0)  # You can adjust the kernel parameters as needed
+    kernel = C(1.0, (1e-3, 1e3)) * RBF(1.0, (1e-3, 1e3))
+
+    polykernel = Polynomial(degree=2, coef0=1)
+    gp_classifier = GaussianProcessRegressor(kernel=polykernel)
+
+    # Train the model
+    gp_classifier.fit(X_train, y_train)
+    
+    return gp_classifier
+
+def GPClassifier_predict(gp_classifier, X_val, y_val):
+
+    # Make predictions on test data
+    mu, std = gp_classifier.predict(X_val, return_std=True)
+
+    y_pred = np.where(mu - (0.1*std) < 0.5, 0, 1)
+
+    # Print results
+    print("Test set predictions:", y_pred)
+    print("True labels:", y_val)
+
+    # Evaluate the accuracy
+    accuracy = np.mean(y_pred == y_val)
+    print(f"Accuracy: {accuracy:.2f}")
+    
+    return y_pred
+
+
 def CatBoost_CV_extended(X_train, y_train, X_val, y_val, save_model=True):
     # Hyperparameter grid
     param_grid = {
@@ -271,6 +305,7 @@ def CatBoost_CV_extended(X_train, y_train, X_val, y_val, save_model=True):
         'iterations': 3000,
         'loss_function': 'Logloss',
         'verbose': 100,
+        'task_type': 'CPU'
         # 'task_type': 'GPU',
         # 'devices': '1',
     }
@@ -351,12 +386,13 @@ def CatBoost_CV_extended(X_train, y_train, X_val, y_val, save_model=True):
 def CatBoost_CV_2(X_train, y_train, X_val, y_val, save_model=True):
     # Define the base model parameters
     params = {
-        'iterations': 3000,
-        'learning_rate': 0.01,
-        'depth': 3,
-        'l2_leaf_reg': 5,
+        'iterations': 5000,
+        'learning_rate': 0.025,
+        'depth': 2,
+        'l2_leaf_reg': 10,
         'loss_function': 'Logloss',
-        'verbose': 100
+        'verbose': 100,
+        'class_weights' : [1.3, 1],  # Adjust class weights if needed
     }
 
     # Train initial model on full feature set to get feature importance
@@ -384,7 +420,7 @@ def CatBoost_CV_2(X_train, y_train, X_val, y_val, save_model=True):
             shuffle=True,
             partition_random_seed=42,
             stratified=True,
-            verbose=False
+            verbose=100
         )
         
         # Store the best score (lowest logloss)
@@ -414,7 +450,60 @@ def CatBoost_CV_2(X_train, y_train, X_val, y_val, save_model=True):
         print(f"Validation Score with top {best_k} features: {val_score:.5f}")
     return final_model
 
-def CatBoost_CV(X_train, y_train, X_val, y_val, save_model=True, plot_importance=True, k=0):
+def RandomForestClassifier_train(X_train, y_train, save_model=True, k=20):
+    
+    # Initialize RandomForestClassifier
+    rf_params = {
+        'n_estimators': 750,
+        'max_depth': 3,
+        'min_samples_leaf': 5,
+        'min_samples_split': 5,
+        'max_features': 0.8,
+        'random_state': 42,
+        'class_weight': "balanced",
+        'n_jobs': -1,
+        'verbose': 100,
+        }
+    rf_model = RandomForestClassifier(**rf_params)
+    rf_model.fit(X_train, y_train)
+    if k > 0:
+        # Select top k features based on feature importance
+        rf_model.fit(X_train, y_train)
+        importances = rf_model.feature_importances_
+        indices = np.argsort(importances)[::-1][:k]
+        top_k_features = X_train.columns[indices]
+        X_train_topk = X_train[top_k_features]
+        rf_model.fit(X_train_topk, y_train)
+        # if save_model:
+        #     rf_model.save_model('rf_model_topk.pkl')
+        return rf_model
+
+    # Train the model
+    # rf_model.fit(X_train, y_train)
+
+    return rf_model
+
+def RandomForestClassifier_predict(rf_model, X_val, y_val):
+    # Make predictions on test data
+    # y_pred = rf_model.predict(X_val)
+    X_val = X_val[rf_model.feature_names_in_]
+    # y_prob = rf_model.predict_proba(X_val)
+    y_pred = rf_model.predict(X_val)
+
+    # class_0_prob = y_prob[:, 0]
+    # return class_0_prob
+
+    
+    # Print results
+    print("Test set predictions:", y_pred)
+    print("True labels:", y_val)
+
+    # Evaluate the accuracy
+    accuracy = np.mean(y_pred == y_val)
+    print(f"Accuracy: {accuracy:.2f}")
+    
+    return y_pred
+def CatBoost_CV(X_train, y_train, X_val, y_val, save_model=True, plot_importance=True, k=20):
     train_data = Pool(X_train, label=y_train, cat_features=[])
 
     # Define the parameter grid for cross-validation
@@ -428,13 +517,14 @@ def CatBoost_CV(X_train, y_train, X_val, y_val, save_model=True, plot_importance
         'eval_metric': 'Logloss',
         'random_seed': 42,
         'verbose': 100,
+        'class_weights': [1, 1],  # Adjust class weights if needed
     }
 
     # Perform cross-validation
     cv_results = cv(
         train_data,
         params=params,
-        fold_count=2,
+        fold_count=5,
         shuffle=True,
         partition_random_seed=42,
         # verbose=True
@@ -454,18 +544,17 @@ def CatBoost_CV(X_train, y_train, X_val, y_val, save_model=True, plot_importance
     # Use the best iteration to train the final model
     # final_model = CatBoostClassifier(iterations=best_iteration, **params)
     final_model.fit(X_train, y_train)
-
-    if plot_importance:
-        if k > 0:
-            top_k_cols = X_train.columns[final_model.get_feature_importance().argsort()[::-1][:k]]
-            X_train_topk = X_train[top_k_cols]
-            X_val_topk = X_val[top_k_cols]
-            final_model.fit(X_train_topk, y_train)
-            print("Validation Score:", final_model.score(X_val_topk, y_val))
-            if save_model:
-                final_model.save_model('catboost_model_topk.cbm')
-                return final_model
-            
+    if k > 0:
+        top_k_cols = X_train.columns[final_model.get_feature_importance().argsort()[::-1][:k]]
+        X_train_topk = X_train[top_k_cols]
+        X_val_topk = X_val[top_k_cols]
+        final_model.fit(X_train_topk, y_train)
+        print("Validation Score:", final_model.score(X_val_topk, y_val))
+        if save_model:
+            final_model.save_model('catboost_model_topk.cbm')
+            return final_model
+        
+    if plot_importance:            
         
         feature_importances = final_model.get_feature_importance()
 
@@ -509,6 +598,7 @@ def CatBoost_Train(X_train, y_train, save_model=True):
         loss_function='Logloss',  # Loss function for binary classification
         cat_features=[], #['marital_status', 'inheritance_details_profession', 'inheritance_details_relationship', 'investment_risk_profile', 'investment_horizon', 'investment_experience', 'type_of_mandate', 'currency'],       # Specify categorical feature indices if needed
         verbose=100,            # Print progress every 100 iterations
+        
     )
 
     # Train the model
@@ -523,6 +613,21 @@ def CatBoost_Train(X_train, y_train, save_model=True):
 def CatBoost_Predicitons(model, X_val, y_val):
     # Predict on the validation set
     y_pred_val = model.predict(X_val)
+    
+    
+    # y_prob = model.predict_proba(X_val)
+
+    # # y_prob contains the probability for each class (for binary classification, two columns)
+    # # For binary classification, column 1 (y_prob[:, 1]) is the probability of class 1 (positive class)
+    # class_1_prob = y_prob[:, 1]
+    # class_0_prob = y_prob[:, 0]
+    
+    # return class_0_prob
+    # # Custom decision rule: If (mu - std) < 0.5, predict 0
+    # You can compute mu (mean probability) and std (standard deviation) based on some conditions
+    # For example, you might want to take the probability from class 1 and apply your custom rule
+
+    # y_pred_val = [0 if prob > 0.21 else 1 for prob in class_0_prob]
 
     # Evaluate the model
     accuracy = accuracy_score(y_val, y_pred_val)
@@ -533,10 +638,10 @@ def CatBoost_Predicitons(model, X_val, y_val):
     print(cm)
 
     # Optional: Save the model
-    model.save_model('catboost_model.cbm')
+    # model.save_model('catboost_model.cbm')
 
     # Optional: Predict probabilities (if needed)
-    y_pred_prob = model.predict_proba(X_val)[:, 1]  # Probability for the positive class
+    # y_pred_prob = model.predict_proba(X_val)[:, 1]  # Probability for the positive class
     
     return y_pred_val
 

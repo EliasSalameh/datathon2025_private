@@ -5,6 +5,7 @@ import json
 from tqdm import tqdm
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from sklearn.impute import SimpleImputer
 
 from extract_files import extract_files
 from get_client_summary_feature import get_client_summary_type
@@ -82,12 +83,24 @@ def get_predictions(data_path: str, llm_output_path: Path):
     X, y = get_X_y(df,save_x_y=True)
     X_train, X_val, y_train, y_val = get_X_y_split(X, y, test_ratio=0.3)
     
-    trained_model = CatBoost_CV_extended(X_train, y_train, X_val, y_val, save_model=True)   #Takes v long to CV
-    # trained_model = CatBoostClassifier()
-    # trained_model.load_model("/home/elias/Anatomic-Diffusion-Models/configs/experiment/autoencoder/catboost_model.cbm") #Change to your path
+    trained_model_CB = CatBoost_CV(X_train, y_train, X_val, y_val, save_model=True, k=10, plot_importance=False)   #Takes v long to CV
+    y_pred_CB = CatBoost_Predicitons(trained_model_CB, X_val, y_val)
     
-    # trained_model = CatBoost_Train(X_train, y_train)
-    y_pred = CatBoost_Predicitons(trained_model, X_val, y_val)
+    train_model_RF = RandomForestClassifier_train(X_train, y_train, save_model=False, k=10)
+    y_pred_RF = RandomForestClassifier_predict(train_model_RF, X_val, y_val)
+    
+    
+    y_pred = [1 if y_pred_CB[i]  or y_pred_RF[i]  else 0 for i in range(len(y_pred_CB))]
+        
+    
+    #GP testing
+    # imputer = SimpleImputer(strategy='constant', fill_value=0)
+
+    # # Fit the imputer on the training data and transform both training and test data
+    # X_train_imputed = imputer.fit_transform(X_train)
+    # X_val_imputed = imputer.transform(X_val)
+    # trained_model = GPClassifier_train(X_train_imputed, y_train)
+    # y_pred = GPClassifier_predict(trained_model, X_val_imputed, y_val)
     
     for i, client_id in enumerate(X_val.index):
         mask_prelim[client_id] = y_pred[i]
