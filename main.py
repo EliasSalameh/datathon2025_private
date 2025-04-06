@@ -16,6 +16,7 @@ from cross_check_passport_client_profile_form import client_profile_and_passport
 from cross_check_account_form_client_profile import account_form_and_client_profile_are_consistent
 from cross_check_account_form_passport import account_form_and_passport_are_consistent
 from check_age_consistency import age_is_consistent
+from check_education_background import education_is_consistent
 
 def get_predictions(data_path: str, llm_output_path: Path):
     clients_dir = os.path.join(data_path, 'clients')
@@ -55,6 +56,8 @@ def get_predictions(data_path: str, llm_output_path: Path):
         elif not family_background_is_consistent(client_description, client_profile, llm_output_path, client_id):
             predicted_labels[client_id] = "Reject"
         elif not age_is_consistent(client_description, client_profile):
+            predicted_labels[client_id] = "Reject"
+        elif not education_is_consistent(client_description, client_profile):
             predicted_labels[client_id] = "Reject"
         else:
             a += 1
