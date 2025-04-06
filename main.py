@@ -168,7 +168,7 @@ def compute_accuracy():
 
     print(f"Accuracy: {accuracy:.2f}%")
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     cache_dir = Path("/home/elias/Anatomic-Diffusion-Models/data_test/llm_outputs_train")
     get_predictions("/home/elias/Anatomic-Diffusion-Models/data_test", cache_dir)
     # compute_accuracy()
