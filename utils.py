@@ -11,6 +11,9 @@ from catboost import CatBoostClassifier, cv
 from catboost import Pool
 from sklearn.metrics import accuracy_score, confusion_matrix
 import numpy as np
+import matplotlib.pyplot as plt
+from itertools import product
+
 
 
 def flatten_json(y, prefix=''):
@@ -26,7 +29,7 @@ def flatten_json(y, prefix=''):
             out[key] = v
     return out
 
-def load_clients_data(base_path, llm_output_path):
+def load_clients_data(base_path, llm_output_path, cur_summary_type):
     client_rows = []
     clients_dir = Path(base_path) 
     clients_dir_llm = Path(llm_output_path)
@@ -68,8 +71,7 @@ def load_clients_data(base_path, llm_output_path):
         
         # Extract the number of children from the family data and add it to the features
         client_data['number_of_children'] = family_data.get('number_of_children', 0)  # Default to 0 if not present
-
-
+        
         client_rows.append(client_data)
 
     return pd.DataFrame(client_rows)
@@ -138,6 +140,10 @@ def craft_features(filtered_df):
         lambda x: max([(current_year - job["start_year"]) if job["end_year"] is None else (job["end_year"] - job["start_year"]) for job in x], default=0)
         if isinstance(x, list) else 0
     )
+    filtered_df_['longest_job_duration_sin'] = np.sin(2 * np.pi * filtered_df_['longest_job_duration'] / 36)
+    
+    filtered_df_['longest_job_duration_cos'] = np.cos(2 * np.pi * filtered_df_['longest_job_duration'] / 36)
+    
     filtered_df__["shortest_job_duration"] = filtered_df__["employment_history"].apply(
         lambda x: min([(current_year - job["start_year"]) if job["end_year"] is None else (job["end_year"] - job["start_year"]) for job in x], default=0)
         if isinstance(x, list) else 0
@@ -150,9 +156,9 @@ def craft_features(filtered_df):
         lambda x: min([job["salary"] for job in x if job["salary"] is not None], default=0) if isinstance(x, list) else 0
     )
     
-    filtered_df__["average_salary"] = np.log10(filtered_df__["employment_history"].apply(
+    filtered_df__["average_salary"] = np.log(filtered_df__["employment_history"].apply(
         lambda x: sum([job["salary"] for job in x if job["salary"] is not None]) / len(x) if isinstance(x, list) and len(x) > 0 else None
-    ))
+    ) + 1)
     filtered_df__["most_recent_job_end_age"] = filtered_df__.apply(
     lambda row: max(
         [
@@ -188,9 +194,9 @@ def craft_features(filtered_df):
     )
 
     # Calculate total investment value across all properties
-    filtered_df__["total_property_value"] = np.log10(filtered_df__["real_estate_details"].apply(
+    filtered_df__["total_property_value"] = np.log(filtered_df__["real_estate_details"].apply(
         lambda x: sum(property.get('property value', 0) for property in x) if isinstance(x, list) else 0
-    ))
+    ) + 1)
 
     # Count distinct property types (e.g., flat, villa, condo)
     filtered_df__["num_property_types"] = filtered_df__["real_estate_details"].apply(
@@ -253,7 +259,162 @@ def get_X_y_split(X, y, test_ratio=0.2):
     X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=test_ratio, random_state=42)
     return X_train, X_val, y_train, y_val
 
-def CatBoost_CV(X_train, y_train, X_val, y_val, save_model=True):
+def CatBoost_CV_extended(X_train, y_train, X_val, y_val, save_model=True):
+    # Hyperparameter grid
+    param_grid = {
+        'learning_rate': [0.01],
+        'depth': [3, 4, 5],
+        'l2_leaf_reg': [5, 7]
+    }
+    k_values = [5, 10, 20, 50]
+    base_params = {
+        'iterations': 3000,
+        'loss_function': 'Logloss',
+        'verbose': 100,
+        # 'task_type': 'GPU',
+        # 'devices': '1',
+    }
+
+    # Train full model for initial feature importance
+    full_model = CatBoostClassifier(**base_params, learning_rate=0.01, depth=3, l2_leaf_reg=5)
+    full_model.fit(X_train, y_train)
+    importances = full_model.get_feature_importance(prettified=True)
+    sorted_features = importances.sort_values(by='Importances', ascending=False)['Feature Id'].tolist()
+
+    best_score = float('inf')
+    best_model = None
+    best_config = {}
+
+    for k, (lr, depth, l2) in product(k_values, 
+                                      product(param_grid['learning_rate'], 
+                                              param_grid['depth'], 
+                                              param_grid['l2_leaf_reg'])):
+        learning_rate, depth, l2_leaf_reg = lr, depth, l2
+        top_k_features = sorted_features[:k]
+        X_k = X_train[top_k_features]
+        data_pool = Pool(X_k, y_train)
+
+        params = {
+            **base_params,
+            'learning_rate': learning_rate,
+            'depth': depth,
+            'l2_leaf_reg': l2_leaf_reg
+        }
+
+        scores = cv(
+            params=params,
+            pool=data_pool,
+            fold_count=5,
+            shuffle=True,
+            partition_random_seed=42,
+            stratified=True,
+            verbose=100
+        )
+
+        mean_logloss = scores['test-Logloss-mean'].min()
+        print(f"k={k}, lr={learning_rate}, depth={depth}, l2={l2_leaf_reg} → Logloss={mean_logloss:.5f}")
+
+        if mean_logloss < best_score:
+            best_score = mean_logloss
+            best_config = {
+                'k': k,
+                'learning_rate': learning_rate,
+                'depth': depth,
+                'l2_leaf_reg': l2_leaf_reg
+            }
+
+    print(f"\n✅ Best Config: {best_config} with Logloss: {best_score:.5f}")
+
+    if save_model:
+        top_k_features = sorted_features[:best_config['k']]
+        X_train_k = X_train[top_k_features]
+        X_val_k = X_val[top_k_features]
+
+        final_params = {
+            **base_params,
+            'learning_rate': best_config['learning_rate'],
+            'depth': best_config['depth'],
+            'l2_leaf_reg': best_config['l2_leaf_reg'],
+            'verbose': 100
+        }
+
+        final_model = CatBoostClassifier(**final_params)
+        final_model.fit(X_train_k, y_train)
+
+        final_model.save_model('catboost_model_best.cbm')
+        val_score = final_model.score(X_val_k, y_val)
+        print(f"Validation Accuracy with top {best_config['k']} features: {val_score:.5f}")
+        return final_model
+
+    return None
+
+def CatBoost_CV_2(X_train, y_train, X_val, y_val, save_model=True):
+    # Define the base model parameters
+    params = {
+        'iterations': 3000,
+        'learning_rate': 0.01,
+        'depth': 3,
+        'l2_leaf_reg': 5,
+        'loss_function': 'Logloss',
+        'verbose': 100
+    }
+
+    # Train initial model on full feature set to get feature importance
+    full_model = CatBoostClassifier(**params)
+    full_model.fit(X_train, y_train)
+
+    # Get sorted top features by importance
+    importances = full_model.get_feature_importance(prettified=True)
+    sorted_features = importances.sort_values(by='Importances', ascending=False)['Feature Id'].tolist()
+
+    # Define different values of k to test
+    k_values = [5, 10, 20, 50]
+    cv_results = {}
+
+    # Run cross-validation for each value of k
+    for k in k_values:
+        top_k_features = sorted_features[:k]
+        X_k = X_train[top_k_features]
+        data_pool = Pool(X_k, y_train)
+        
+        scores = cv(
+            params=params,
+            pool=data_pool,
+            fold_count=5,
+            shuffle=True,
+            partition_random_seed=42,
+            stratified=True,
+            verbose=False
+        )
+        
+        # Store the best score (lowest logloss)
+        cv_results[k] = scores['test-Logloss-mean'].min()
+
+    # Print all scores
+    for k, score in cv_results.items():
+        print(f"k = {k}, Logloss = {score:.5f}")
+
+    # Select best k
+    best_k = min(cv_results, key=cv_results.get)
+    print(f"\n✅ Best k: {best_k} with Logloss: {cv_results[best_k]:.5f}")
+    if save_model:
+        # Train final model with best k features
+        top_k_features = sorted_features[:best_k]
+        X_train_k = X_train[top_k_features]
+        X_val_k = X_val[top_k_features]
+
+        final_model = CatBoostClassifier(**params)
+        final_model.fit(X_train_k, y_train)
+
+        # Save the model
+        final_model.save_model('catboost_model_topk.cbm')
+
+        # Evaluate on validation set
+        val_score = final_model.score(X_val_k, y_val)
+        print(f"Validation Score with top {best_k} features: {val_score:.5f}")
+    return final_model
+
+def CatBoost_CV(X_train, y_train, X_val, y_val, save_model=True, plot_importance=True, k=0):
     train_data = Pool(X_train, label=y_train, cat_features=[])
 
     # Define the parameter grid for cross-validation
@@ -273,7 +434,7 @@ def CatBoost_CV(X_train, y_train, X_val, y_val, save_model=True):
     cv_results = cv(
         train_data,
         params=params,
-        fold_count=5,
+        fold_count=2,
         shuffle=True,
         partition_random_seed=42,
         # verbose=True
@@ -294,8 +455,45 @@ def CatBoost_CV(X_train, y_train, X_val, y_val, save_model=True):
     # final_model = CatBoostClassifier(iterations=best_iteration, **params)
     final_model.fit(X_train, y_train)
 
-    # Evaluate on the validation set
-    print("Validation Score:", final_model.score(X_val, y_val))
+    if plot_importance:
+        if k > 0:
+            top_k_cols = X_train.columns[final_model.get_feature_importance().argsort()[::-1][:k]]
+            X_train_topk = X_train[top_k_cols]
+            X_val_topk = X_val[top_k_cols]
+            final_model.fit(X_train_topk, y_train)
+            print("Validation Score:", final_model.score(X_val_topk, y_val))
+            if save_model:
+                final_model.save_model('catboost_model_topk.cbm')
+                return final_model
+            
+        
+        feature_importances = final_model.get_feature_importance()
+
+        # Print the feature importances
+        for feature, importance in zip(X_train.columns, feature_importances):
+            print(f'{feature}: {importance}')
+            
+        # Evaluate on the validation set
+        print("Validation Score:", final_model.score(X_val, y_val))
+        
+        # Create a DataFrame for easier visualization
+        importance_df = pd.DataFrame({
+            'Feature': X_train.columns,
+            'Importance': feature_importances
+        })
+
+        # Sort the features by importance
+        importance_df = importance_df.sort_values(by='Importance', ascending=False)
+
+        # Plot
+        plt.figure(figsize=(10, 20))
+        plt.barh(importance_df['Feature'], importance_df['Importance'], height= 1.0)
+        plt.xlabel('Importance')
+        plt.title('CatBoost Feature Importance')
+
+        # Save the figure
+        plt.savefig('/home/elias/Anatomic-Diffusion-Models/configs/experiment/autoencoder/feature_importance.png', bbox_inches='tight')  # bbox_inches='tight' ensures the figure is not cropped
+        plt.close()  # Close the figure to free up memory
     
     if save_model:
         final_model.save_model('catboost_model.cbm')
