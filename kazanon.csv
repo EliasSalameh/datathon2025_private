@@ -316,7 +316,7 @@ client_314;Accept
 client_315;Accept
 client_316;Accept
 client_317;Accept
-client_318;Accept
+client_318;Reject
 client_319;Accept
 client_320;Reject
 client_321;Accept
@@ -641,7 +641,7 @@ client_639;Accept
 client_640;Accept
 client_641;Accept
 client_642;Reject
-client_643;Accept
+client_643;Reject
 client_644;Reject
 client_645;Reject
 client_646;Reject
@@ -787,14 +787,14 @@ client_785;Reject
 client_786;Reject
 client_787;Accept
 client_788;Accept
-client_789;Accept
+client_789;Reject
 client_790;Accept
 client_791;Accept
 client_792;Accept
 client_793;Accept
 client_794;Accept
 client_795;Accept
-client_796;Accept
+client_796;Reject
 client_797;Accept
 client_798;Accept
 client_799;Reject
@@ -928,7 +928,7 @@ client_926;Accept
 client_927;Reject
 client_928;Reject
 client_929;Accept
-client_930;Accept
+client_930;Reject
 client_931;Accept
 client_932;Reject
 client_933;Accept
