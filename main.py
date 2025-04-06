@@ -28,7 +28,7 @@ def get_predictions(data_path: str, llm_output_path: Path):
         extract_files(data_path)
     
     # Obtain the client summary types for more feature engineering
-    with open("/home/elias/Anatomic-Diffusion-Models/configs/experiment/autoencoder/summary_types.txt", "r", encoding="utf-8") as f:
+    with open("/configs/experiment/autoencoder/summary_types.txt", "r", encoding="utf-8") as f:
         all_summary_types_list = f.readlines()
         all_summary_types = {}
         for idx, summary_type in enumerate(all_summary_types_list):
@@ -131,7 +131,7 @@ def get_real_train_set_solutions():
     # Do that at least once to get a correct solution.csv file
     client_ids = []
     real_labels = []
-    clients_dir = Path("/home/elias/Anatomic-Diffusion-Models/configs/experiment/autoencoder/data/clients") 
+    clients_dir = Path("/configs/experiment/autoencoder/data/clients") 
     sorted_clients = sorted(clients_dir.iterdir(), key=lambda x: int(x.name.split('_')[1]))
     for client_dir in sorted_clients:   
         client_ids.append(os.path.basename(client_dir))
@@ -139,7 +139,7 @@ def get_real_train_set_solutions():
         label = json.load(label_path.open("r", encoding="utf-8")).get("label")
         real_labels.append(label)
 
-    output_file = "/home/elias/Anatomic-Diffusion-Models/configs/experiment/autoencoder/solution.csv"
+    output_file = "/configs/experiment/autoencoder/solution.csv"
     with open(output_file, mode='w', newline='') as file:
         writer = csv.writer(file, delimiter=';')
         for client_id, status in zip(client_ids, real_labels):
@@ -154,7 +154,7 @@ def compute_accuracy():
                 client_status[row[0]] = row[1]
         return client_status
 
-    status_file_real = read_csv_to_dict("/home/elias/Anatomic-Diffusion-Models/configs/experiment/autoencoder/solution.csv")
+    status_file_real = read_csv_to_dict("/configs/experiment/autoencoder/solution.csv")
     status_file_predicted = read_csv_to_dict("predictions.csv")
 
     correct_matches = 0
@@ -169,6 +169,6 @@ def compute_accuracy():
     print(f"Accuracy: {accuracy:.2f}%")
 
 if __name__ == "__main__":
-    cache_dir = Path("/home/elias/Anatomic-Diffusion-Models/data_test/llm_outputs_train")
-    get_predictions("/home/elias/Anatomic-Diffusion-Models/data_test", cache_dir)
+    cache_dir = Path("/data_test/llm_outputs_train")
+    get_predictions("/data_test", cache_dir)
     # compute_accuracy()
