@@ -1,12 +1,12 @@
-# remove her, his; remove first name, middle name and last name, keep the rest
-
-import os
 import re
 import json
 from pathlib import Path
 from check_passport_consistency import passport_is_consistent
 
 def extract_summary_type(summary: str, passport: str):
+    """
+    Anonymizes the summary by removing names and personal pronouns
+    """
     def remove_words(input_string, words_to_remove):
         words = input_string.split()
         filtered_words = [word for word in words if word.lower() not in words_to_remove]
@@ -28,11 +28,16 @@ def extract_summary_type(summary: str, passport: str):
 
 
 def get_client_summary_type(description, passport, all_summary_types): 
+    """ Extracts the anonymized summary along with its type """
     summary = extract_summary_type(description["Client Summary"], passport)
     return summary, all_summary_types[summary]
 
-# This is to obtain the summary types from the training set
-def get_all_client_summary_types():
+
+def get_all_client_summary_types_from_train_set():
+    """
+    Goes over every client in the train set, and add its (anonymized) Client Summary to a set.
+    The unique summary templates are then stored on file
+    """
     clients_dir = Path("data/clients") 
 
     all_summaries = set()
