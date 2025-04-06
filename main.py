@@ -17,6 +17,7 @@ from cross_check_account_form_client_profile import account_form_and_client_prof
 from cross_check_account_form_passport import account_form_and_passport_are_consistent
 from check_age_consistency import age_is_consistent
 from check_education_background import education_is_consistent
+from check_occupation_hist import employment_is_consistent
 
 def get_predictions(data_path: str, llm_output_path: Path):
     clients_dir = os.path.join(data_path, 'clients')
@@ -58,6 +59,8 @@ def get_predictions(data_path: str, llm_output_path: Path):
         elif not age_is_consistent(client_description, client_profile):
             predicted_labels[client_id] = "Reject"
         elif not education_is_consistent(client_description, client_profile):
+            predicted_labels[client_id] = "Reject"
+        elif not employment_is_consistent(client_description, client_profile):
             predicted_labels[client_id] = "Reject"
         else:
             a += 1
@@ -117,8 +120,7 @@ def compute_accuracy():
 
     print(f"Accuracy: {accuracy:.2f}%")
 
-
 if __name__ == "__main__":
-    cache_dir = Path("llm_outputs_train")
+    cache_dir = Path("data")
     get_predictions("data", cache_dir)
     compute_accuracy()
