@@ -7,9 +7,10 @@ from tqdm import tqdm
 from sklearn.preprocessing import LabelEncoder
 from pathlib import Path
 from sklearn.model_selection import train_test_split
-import catboost
-from catboost import CatBoostClassifier
+from catboost import CatBoostClassifier, cv
+from catboost import Pool
 from sklearn.metrics import accuracy_score, confusion_matrix
+import numpy as np
 
 
 def flatten_json(y, prefix=''):
@@ -25,9 +26,10 @@ def flatten_json(y, prefix=''):
             out[key] = v
     return out
 
-def load_clients_data(base_path):
+def load_clients_data(base_path, llm_output_path):
     client_rows = []
     clients_dir = Path(base_path) 
+    clients_dir_llm = Path(llm_output_path)
     sorted_clients = sorted(clients_dir.iterdir(), key=lambda x: int(x.name.split('_')[1]))
 
     for client_folder in tqdm(sorted_clients): #os.listdir(base_path):
@@ -47,10 +49,26 @@ def load_clients_data(base_path):
                         client_data.update(flat_data)
                     except json.JSONDecodeError:
                         print(f"Warning: could not decode {file_path}")
+        
+        llm_client_folder = clients_dir_llm / client_folder.name
+        family_background_path = os.path.join(llm_client_folder, 'family_background.json')
+        if os.path.exists(family_background_path):
+            with open(family_background_path, 'r', encoding='utf-8') as f:
+                try:
+                    family_data = json.load(f)
+                    flat_family_data = flatten_json(family_data)
+                    client_data.update(flat_family_data)  # Add the family background data to client_data
+                except json.JSONDecodeError:
+                    print(f"Warning: could not decode {family_background_path}")
+        
 
         # Normalize label
         label = client_data.get('label', '').lower()
         client_data['label'] = 1 if label == 'accept' else 0
+        
+        # Extract the number of children from the family data and add it to the features
+        client_data['number_of_children'] = family_data.get('number_of_children', 0)  # Default to 0 if not present
+
 
         client_rows.append(client_data)
 
@@ -97,16 +115,44 @@ def craft_features(filtered_df):
         lambda x: sum([(current_year - job["start_year"]) if job["end_year"] is None else (job["end_year"] - job["start_year"]) for job in x])
         if isinstance(x, list) else 0
     )
+    
+    def compute_gap_years(employment_history):
+        if isinstance(employment_history, list) and len(employment_history) > 1:
+            gap_years = 0
+            # Iterate through consecutive pairs of jobs
+            for prev_job, job in zip([None] + employment_history[:-1], employment_history):
+                if prev_job is not None and prev_job.get('end_year') is not None and job.get('start_year') is not None:
+                    gap_years += (job["start_year"] - prev_job["end_year"])
+            return gap_years
+        return 0  # Return 0 if there 
+
+    filtered_df__["total_gap_years"] = filtered_df__["employment_history"].apply(compute_gap_years)
+
+    
     filtered_df__["num_jobs"] = filtered_df__["employment_history"].apply(
         lambda x: len(x) if isinstance(x, list) else 0
     )
+    filtered_df__["num_jobs_squared"] = filtered_df__["num_jobs"] ** 2
+    
     filtered_df__["longest_job_duration"] = filtered_df__["employment_history"].apply(
         lambda x: max([(current_year - job["start_year"]) if job["end_year"] is None else (job["end_year"] - job["start_year"]) for job in x], default=0)
         if isinstance(x, list) else 0
     )
-    filtered_df__["average_salary"] = filtered_df__["employment_history"].apply(
-        lambda x: sum([job["salary"] for job in x if job["salary"] is not None]) / len(x) if isinstance(x, list) and len(x) > 0 else None
+    filtered_df__["shortest_job_duration"] = filtered_df__["employment_history"].apply(
+        lambda x: min([(current_year - job["start_year"]) if job["end_year"] is None else (job["end_year"] - job["start_year"]) for job in x], default=0)
+        if isinstance(x, list) else 0
     )
+    
+    filtered_df__["maximum_salary"] = filtered_df__["employment_history"].apply(
+        lambda x: max([job["salary"] for job in x if job["salary"] is not None], default=0) if isinstance(x, list) else 0
+    )
+    filtered_df__["minimum_salary"] = filtered_df__["employment_history"].apply(
+        lambda x: min([job["salary"] for job in x if job["salary"] is not None], default=0) if isinstance(x, list) else 0
+    )
+    
+    filtered_df__["average_salary"] = np.log10(filtered_df__["employment_history"].apply(
+        lambda x: sum([job["salary"] for job in x if job["salary"] is not None]) / len(x) if isinstance(x, list) and len(x) > 0 else None
+    ))
     filtered_df__["most_recent_job_end_age"] = filtered_df__.apply(
     lambda row: max(
         [
@@ -118,7 +164,6 @@ def craft_features(filtered_df):
     ) if isinstance(row["employment_history"], list) else None,
     axis=1
     )
-    
     filtered_df__["most_recent_job_start_age"] = filtered_df__.apply(
     lambda row: max(
         [job["start_year"] - row["birth_date"].year for job in row["employment_history"]],
@@ -143,9 +188,9 @@ def craft_features(filtered_df):
     )
 
     # Calculate total investment value across all properties
-    filtered_df__["total_property_value"] = filtered_df__["real_estate_details"].apply(
+    filtered_df__["total_property_value"] = np.log10(filtered_df__["real_estate_details"].apply(
         lambda x: sum(property.get('property value', 0) for property in x) if isinstance(x, list) else 0
-    )
+    ))
 
     # Count distinct property types (e.g., flat, villa, condo)
     filtered_df__["num_property_types"] = filtered_df__["real_estate_details"].apply(
@@ -186,10 +231,7 @@ def craft_features(filtered_df):
 
     return filtered_df__
 
-def get_X_y_split(filtered_df__, test_ratio=0.2, save_x_y=False):
-    """
-    Splits the DataFrame into features (X) and target variable (y).
-    """
+def get_X_y(filtered_df__, save_x_y=False):
     # Ensure the 'label' column is present
     if "label" not in filtered_df__.columns:
         raise ValueError("The DataFrame must contain a 'label' column.")
@@ -197,28 +239,90 @@ def get_X_y_split(filtered_df__, test_ratio=0.2, save_x_y=False):
         # Split into features and target variable
     X = filtered_df__.drop(columns=["label"])  # Drop the 'label' column for features
     y = filtered_df__["label"]  # The 'label' column will be the target variable
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=test_ratio, random_state=42)
+    
     if save_x_y:
-        X.to_csv("X.csv", index=False)
-        y.to_csv("y.csv", index=False)
+        X.to_csv("X_no_dummies.csv", index=False)
+        # y.to_csv("y_no_dummies.csv", index=False)
+        
+    return X, y
+    
+def get_X_y_split(X, y, test_ratio=0.2):
+    """
+    Splits the DataFrame into features (X) and target variable (y).
+    """
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=test_ratio, random_state=42)
     return X_train, X_val, y_train, y_val
 
+def CatBoost_CV(X_train, y_train, X_val, y_val, save_model=True):
+    train_data = Pool(X_train, label=y_train, cat_features=[])
+
+    # Define the parameter grid for cross-validation
+    params = {
+        'iterations': 3000,
+        'learning_rate': 1e-2,
+        'depth': 3,
+        'l2_leaf_reg': 5,
+        'cat_features': [],
+        'loss_function': 'Logloss',
+        'eval_metric': 'Logloss',
+        'random_seed': 42,
+        'verbose': 100,
+    }
+
+    # Perform cross-validation
+    cv_results = cv(
+        train_data,
+        params=params,
+        fold_count=5,
+        shuffle=True,
+        partition_random_seed=42,
+        # verbose=True
+    )
+
+    # Get the best iteration (you can choose other metrics like AUC, F1, etc.)
+    best_iteration = cv_results['iterations'][cv_results['test-Logloss-mean'].idxmin()]
+
+    # Use the best parameters to train the final model
+    final_model = CatBoostClassifier(**params)
+    
+
+# Set the best iteration explicitly (since the best_iteration was obtained from cross-validation)
+    final_model.set_params(iterations=best_iteration)
 
 
-def CatBoost_Predicitons(X_train, X_val, y_train, y_val):
+    # Use the best iteration to train the final model
+    # final_model = CatBoostClassifier(iterations=best_iteration, **params)
+    final_model.fit(X_train, y_train)
+
+    # Evaluate on the validation set
+    print("Validation Score:", final_model.score(X_val, y_val))
+    
+    if save_model:
+        final_model.save_model('catboost_model.cbm')
+    
+    return final_model
+    
+def CatBoost_Train(X_train, y_train, save_model=True):
     # Initialize CatBoost model for binary classification
     model = CatBoostClassifier(
-        iterations=1000,       # Number of trees
+        iterations=5000,       # Number of trees
         depth=9,               # Depth of the tree
         learning_rate=0.05,    # Learning rate
         loss_function='Logloss',  # Loss function for binary classification
-        cat_features=[],       # Specify categorical feature indices if needed
-        verbose=100            # Print progress every 100 iterations
+        cat_features=[], #['marital_status', 'inheritance_details_profession', 'inheritance_details_relationship', 'investment_risk_profile', 'investment_horizon', 'investment_experience', 'type_of_mandate', 'currency'],       # Specify categorical feature indices if needed
+        verbose=100,            # Print progress every 100 iterations
     )
 
     # Train the model
     model.fit(X_train, y_train)
 
+    # Optional: Save the model
+    if save_model:
+        model.save_model('catboost_model.cbm')
+
+    return model
+
+def CatBoost_Predicitons(model, X_val, y_val):
     # Predict on the validation set
     y_pred_val = model.predict(X_val)
 
