@@ -33,7 +33,6 @@ def get_predictions(data_path: str, llm_output_path: Path):
             summary_type = summary_type[:-1]
             all_summary_types[summary_type] = idx
 
-    a = 0
     predicted_labels = {}
     clients_dir = Path(data_path + "/clients") 
     sorted_clients = sorted(clients_dir.iterdir(), key=lambda x: int(x.name.split('_')[1]))
@@ -63,13 +62,11 @@ def get_predictions(data_path: str, llm_output_path: Path):
         elif not employment_is_consistent(client_description, client_profile):
             predicted_labels[client_id] = "Reject"
         else:
-            a += 1
             cur_summary, cur_summary_type = get_client_summary_type(client_description, passport, all_summary_types)
             cur_summary_type_list[int(client_id.split('_')[-1])] = cur_summary_type
             predicted_labels[client_id] = "Accept"
     
-    print(a)
-    
+    # We pass consistent cases through an ensemble model of boosted and random trees to determine whether we should reject them or not
     df = load_clients_data(clients_dir, llm_output_path, cur_summary_type_list)
     mask_prelim = [
     1 if predicted_labels[f"client_{client_id}"] == 'Accept' else 0
