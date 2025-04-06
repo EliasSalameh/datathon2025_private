@@ -1,21 +1,18 @@
 import os
 import json
-import pandas as pd
-from tqdm import tqdm
-from sklearn.preprocessing import LabelEncoder
-from pathlib import Path
-from sklearn.model_selection import train_test_split
-from catboost import CatBoostClassifier, cv
-from catboost import Pool
-from sklearn.metrics import accuracy_score, confusion_matrix
-import numpy as np
-import matplotlib.pyplot as plt
-from itertools import product
-from sklearn.ensemble import RandomForestClassifier
 import joblib
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 
-
-
+from tqdm import tqdm
+from pathlib import Path
+from catboost import Pool
+from catboost import CatBoostClassifier, cv
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, confusion_matrix
+from itertools import product
 
 def flatten_json(y, prefix=''):
     """Recursively flattens nested JSON"""
@@ -72,7 +69,6 @@ def load_clients_data(base_path, llm_output_path, cur_summary_type):
     return pd.DataFrame(client_rows)
 
 def craft_features(filtered_df):
-    
     filtered_df = filtered_df.drop(columns=["country","nationality","first_name","last_name","middle_name","passport_number","passport_issue_date","passport_expiry_date", "gender","country_code","passport_mrz","name","address_city","address_street_name","address_street_number","address_postal_code","email_address","secondary_school_name","country_of_domicile","phone_number"])
 
     current_date = pd.to_datetime("2025-04-01")
@@ -204,11 +200,7 @@ def craft_features(filtered_df):
     filtered_df.drop(columns=["birth_date","inheritance_details_inheritance_year","secondary_school_graduation_year",
     "higher_education","employment_history","real_estate_details", "preferred_markets"], inplace=True)
 
-
-    filtered_df = filtered_df.apply(lambda x: x.astype(int) if x.dtype == 'bool' else x)
-
-
-    return filtered_df
+    return filtered_df.apply(lambda x: x.astype(int) if x.dtype == 'bool' else x)
 
 def get_X_y(filtered_df, save_x_y=False):
     # Ensure the 'label' column is present
@@ -322,75 +314,7 @@ def CatBoost_CV_extended(X_train, y_train, X_val, y_val, save_model=True):
 
     return None
 
-def CatBoost_CV_2(X_train, y_train, X_val, y_val, save_model=True):
-    # Define the base model parameters
-    params = {
-        'iterations': 5000,
-        'learning_rate': 0.025,
-        'depth': 2,
-        'l2_leaf_reg': 10,
-        'loss_function': 'Logloss',
-        'verbose': 100,
-        'class_weights' : [1.3, 1],  # Adjust class weights if needed
-    }
-
-    # Train initial model on full feature set to get feature importance
-    full_model = CatBoostClassifier(**params)
-    full_model.fit(X_train, y_train)
-
-    # Get sorted top features by importance
-    importances = full_model.get_feature_importance(prettified=True)
-    sorted_features = importances.sort_values(by='Importances', ascending=False)['Feature Id'].tolist()
-
-    # Define different values of k to test
-    k_values = [5, 10, 20, 50]
-    cv_results = {}
-
-    # Run cross-validation for each value of k
-    for k in k_values:
-        top_k_features = sorted_features[:k]
-        X_k = X_train[top_k_features]
-        data_pool = Pool(X_k, y_train)
-        
-        scores = cv(
-            params=params,
-            pool=data_pool,
-            fold_count=5,
-            shuffle=True,
-            partition_random_seed=42,
-            stratified=True,
-            verbose=100
-        )
-        
-        # Store the best score (lowest logloss)
-        cv_results[k] = scores['test-Logloss-mean'].min()
-
-    # Print all scores
-    for k, score in cv_results.items():
-        print(f"k = {k}, Logloss = {score:.5f}")
-
-    # Select best k
-    best_k = min(cv_results, key=cv_results.get)
-    print(f"\n✅ Best k: {best_k} with Logloss: {cv_results[best_k]:.5f}")
-    if save_model:
-        # Train final model with best k features
-        top_k_features = sorted_features[:best_k]
-        X_train_k = X_train[top_k_features]
-        X_val_k = X_val[top_k_features]
-
-        final_model = CatBoostClassifier(**params)
-        final_model.fit(X_train_k, y_train)
-
-        # Save the model
-        final_model.save_model('catboost_model_topk.cbm')
-
-        # Evaluate on validation set
-        val_score = final_model.score(X_val_k, y_val)
-        print(f"Validation Score with top {best_k} features: {val_score:.5f}")
-    return final_model
-
 def RandomForestClassifier_train(X_train, y_train, save_model=True, k=20):
-    # Initialize RandomForestClassifier
     rf_params = {
         'n_estimators': 750,
         'max_depth': 3,
@@ -419,11 +343,9 @@ def RandomForestClassifier_train(X_train, y_train, save_model=True, k=20):
     return rf_model
 
 def RandomForestClassifier_predict(rf_model, X_val, y_val):
-
     X_val = X_val[rf_model.feature_names_in_]
     y_pred = rf_model.predict(X_val)
 
-    # Print results
     print("Test set predictions:", y_pred)
     print("True labels:", y_val)
 
@@ -432,6 +354,7 @@ def RandomForestClassifier_predict(rf_model, X_val, y_val):
     print(f"Accuracy of Random Forest Classifier: {accuracy:.4f}")
     
     return y_pred
+
 def CatBoost_CV(X_train, y_train, X_val, y_val, save_model=True, plot_importance=True, k=20):
     train_data = Pool(X_train, label=y_train, cat_features=[])
 
@@ -446,7 +369,7 @@ def CatBoost_CV(X_train, y_train, X_val, y_val, save_model=True, plot_importance
         'eval_metric': 'Logloss',
         'random_seed': 42,
         'verbose': 100,
-        'class_weights': [1, 1],  # Adjust class weights if needed
+        'class_weights': [1, 1],
     }
 
     # Perform cross-validation
@@ -456,7 +379,6 @@ def CatBoost_CV(X_train, y_train, X_val, y_val, save_model=True, plot_importance
         fold_count=2,
         shuffle=True,
         partition_random_seed=42,
-        # verbose=True
     )
 
     # Get the best iteration (you can choose other metrics like AUC, F1, etc.)
@@ -465,10 +387,8 @@ def CatBoost_CV(X_train, y_train, X_val, y_val, save_model=True, plot_importance
     # Use the best parameters to train the final model
     final_model = CatBoostClassifier(**params)
     
-
-# Set the best iteration explicitly (since the best_iteration was obtained from cross-validation)
+    # Set the best iteration explicitly (since the best_iteration was obtained from cross-validation)
     final_model.set_params(iterations=best_iteration)
-
 
     # Use the best iteration to train the final model
     # final_model = CatBoostClassifier(iterations=best_iteration, **params)
@@ -484,7 +404,6 @@ def CatBoost_CV(X_train, y_train, X_val, y_val, save_model=True, plot_importance
             return final_model
         
     if plot_importance:            
-        
         feature_importances = final_model.get_feature_importance()
 
         # Print the feature importances
@@ -511,7 +430,7 @@ def CatBoost_CV(X_train, y_train, X_val, y_val, save_model=True, plot_importance
 
         # Save the figure
         plt.savefig('/home/elias/Anatomic-Diffusion-Models/configs/experiment/autoencoder/feature_importance.png', bbox_inches='tight')  # bbox_inches='tight' ensures the figure is not cropped
-        plt.close()  # Close the figure to free up memory
+        plt.close()
     
     if save_model:
         final_model.save_model('catboost_model.cbm')
@@ -527,13 +446,10 @@ def CatBoost_Train(X_train, y_train, save_model=True):
         loss_function='Logloss',  # Loss function for binary classification
         cat_features=[], #['marital_status', 'inheritance_details_profession', 'inheritance_details_relationship', 'investment_risk_profile', 'investment_horizon', 'investment_experience', 'type_of_mandate', 'currency'],       # Specify categorical feature indices if needed
         verbose=100,            # Print progress every 100 iterations
-        
     )
 
     # Train the model
     model.fit(X_train, y_train)
-
-    # Optional: Save the model
     if save_model:
         model.save_model('catboost_model.cbm')
 
@@ -549,6 +465,3 @@ def CatBoost_Predicitons(model, X_val, y_val):
     print(cm)
 
     return y_pred_val
-
-
-
